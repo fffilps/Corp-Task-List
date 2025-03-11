@@ -115,8 +115,7 @@ export default function Home() {
     <div>
       {error && <div>{error}</div>}
 
-      {tasks && <div className="text-3xl">{tasks.map(task => <li key={task.id}>{task.taskTitle}</li>)}</div>}
-
+      {/* Task Form */}
       <form onSubmit={handleCreateTask}>
         <h2>Add New Task</h2>
         <div>
@@ -144,6 +143,60 @@ export default function Home() {
 
         <button type="submit">Add Task</button>
       </form>
+
+      {/* Edit Task Section */}
+      {editedTask && (
+        <form onSubmit={handleUpdateTask}>
+          <h2>Edit Task</h2>
+          <div>
+            <label htmlFor="editTitle">Title*:</label>
+            <input type="text" 
+            id="editTitle"
+            value={editedTask.taskTitle}
+            onChange={(e) => setEditedTask({...editedTask, taskTitle: e.target.value})}
+            placeholder="Enter task title"
+            required
+            />
+          </div>
+
+          <div>
+            <input type="checkbox"
+            id="editCompleted"
+            checked={editedTask.completed}
+            onChange={(e) => setEditedTask({...editedTask, completed: e.target.checked})}
+            />
+            <label htmlFor="editedCompleted">Completed</label>
+          </div>
+
+          <div>
+            <button type="submit">Update Task</button>
+            <button type="button" onClick={() => setEditedTask(null)}>Cancel</button>
+          </div>
+        </form>
+      )}
+
+      {/* Task List */}
+      {loading && !tasks.length ? (
+        <div>Loading tasks...</div>
+      ) : (
+        <ul>
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <div>
+                <input type="checkout" />
+                <div>
+                  <h3>{task.taskTitle}</h3>
+                  {/* can add more details here like when created, timeline, descriptions and such */}
+                </div>
+              </div>
+              <div>
+                <button>Edit</button>
+                <button>Delete</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
