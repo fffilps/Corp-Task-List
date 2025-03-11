@@ -10,3 +10,8 @@
         - copy all the files also with the . .  command
     - #### Frontend
         - 
+
+---
+
+## Backend Development
+### Setting up Redi and FastAPI
