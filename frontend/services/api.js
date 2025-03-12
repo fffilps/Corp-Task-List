@@ -49,7 +49,7 @@ export const updateTask = async (taskId, taskData) => {
 }
 
 // Delete a task
-export const deleteTask = async () => {
+export const deleteTask = async (tasksId) => {
     const response = await fetch(`${API_BASE_URL}/tasks/${tasksId}`, {
         method: 'DELETE'
     })

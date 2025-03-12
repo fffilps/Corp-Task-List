@@ -53,14 +53,14 @@ export default function Home() {
   const handleUpdateTask = async (e) => {
     e.preventDefault();
 
-    if (!editedTask || !editedTask.title.trim()) {
+    if (!editedTask || !editedTask.taskTitle.trim()) {
       return;
     }
 
     try {
       setLoading(true);
       const updatedTask = await updateTask(editedTask.id, {
-        title: editedTask.title,
+        taskTitle: editedTask.taskTitle,
         completed: editedTask.completed,
       });
 
@@ -179,23 +179,33 @@ export default function Home() {
       {loading && !tasks.length ? (
         <div>Loading tasks...</div>
       ) : (
-        <ul>
-          {tasks.map((task) => (
-            <li key={task.id}>
-              <div>
-                <input type="checkout" />
-                <div>
-                  <h3>{task.taskTitle}</h3>
-                  {/* can add more details here like when created, timeline, descriptions and such */}
-                </div>
-              </div>
-              <div>
-                <button>Edit</button>
-                <button>Delete</button>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <div>
+          {!tasks.length ? (
+            <div>No tasks yet. Add one above!</div>
+          ) : (
+            <ul>
+              {tasks.map((task) => (
+                <li key={task.id}>
+                  <div>
+                    <input
+                     checked={task.completed}
+                     onChange={() => handleToggleComplete(task)}
+                     className=""
+                     type="checkout" />
+                    <div>
+                      <h3>{task.taskTitle}</h3>
+                      {/* can add more details here like when created, timeline, descriptions and such */}
+                    </div>
+                  </div>
+                  <div>
+                    <button onClick={() => setEditedTask(task)}>Edit</button>
+                    <button onClick={() => handleDeleteTask(task.id)}>Delete</button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );
