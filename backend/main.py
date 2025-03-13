@@ -46,9 +46,9 @@ TASK_CHANNEL = "task_updates" # Channel for Pub/Sub
 # Redis Dependecy init
 def get_redis(): 
     redis_client = redis.Redis(
-        host=REDIS_HOST
-        port=REDIS_PORT
-        db=REDIS_DB
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        db=REDIS_DB,
         decode_responses=True # Need in order to work with strings and not bytes
     )
     try:
