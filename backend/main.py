@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uuid
@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Dict
 import redis
 import json
+import asyncio
 
 # Declaring Data Models
 class TaskBase(BaseModel):
@@ -19,6 +20,55 @@ class Task(TaskBase):
     id: str
     created_at: str
     updated_at: str
+
+# WebSocket Init and connection
+class ConnectionManager:
+    def __init__(self) -> None:
+        self.active_connections: List[WebSocket] = []
+        self.pubsub = None
+        self.redis_client = None
+    
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnet(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: str):
+        for connection in self.active_connections:
+            try:
+                await connection.send_text(message)
+            except Exception:
+                # Connection might be closed or in error state
+                pass
+    
+    async def start_redis_listener(self):
+        # Connect to Redis
+        self.redis_client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB,
+            decode_responses=True
+        )
+
+        # Initialize PubSub
+        self.pubsub = self.redis_client.pubsub()
+        self.pubsub.subscribe(TASK_CHANNEL)
+
+        # Start listening for messages in a background task
+        asyncio.create_task(self.listen_for_messages())
+
+    async def listen_for_messages(self):
+        # This needs to run in a seperate thread because Redis PubSub is blocking
+        for message in self.pubsub.listen():
+            if message["type"] == "message":
+                data = message["data"]
+                await self.braodcast(data)
+
+# Create an instance
+manager = ConnectionManager()
 
 # Init App
 app = FastAPI(title="Real-Time Task List API")
