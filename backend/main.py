@@ -86,7 +86,7 @@ app.add_middleware(
 tasks_db = {}
 
 # Redis Configuration
-REDIS_HOST = "redis" # Docker service name
+REDIS_HOST = "localhost"  # Use localhost for local development
 REDIS_PORT = 6379
 REDIS_DB = 0
 TASK_KEY_PREFIX = "task:"
@@ -123,22 +123,26 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
     task_id = generate_task_id()
     timestamp = datetime.now().isoformat()
 
+    # Convert the task dict and ensure boolean is converted to string
+    task_dict = task.dict()
+    task_dict['completed'] = str(task_dict['completed']).lower()
+    
     task_data = {
-        **task.dict(),
+        **task_dict,
         "id": task_id,
         "created_at": timestamp,
         "updated_at": timestamp
     }
     
-    # # Store to Memory
-    # tasks_db[task_id] = task_data
-
     # Store in Redis
     task_key = f"{TASK_KEY_PREFIX}{task_id}"
     redis_client.hset(task_key, mapping=task_data)
 
     # Adding to library set of tasks
     redis_client.sadd(TASK_LIST_KEY, task_id)
+
+    # Convert back to boolean for the response
+    task_data['completed'] = task_data['completed'] == 'true'
 
     # Publish event for real-time updates
     redis_client.publish(
@@ -157,9 +161,11 @@ async def get_tasks(redis_client: redis.Redis = Depends(get_redis)):
     tasks = []
 
     for task_id in task_ids:
-        task_key= f"{TASK_KEY_PREFIX}{task_id}"
-        task_data = redis.client.hgetall(task_key)
+        task_key = f"{TASK_KEY_PREFIX}{task_id}"
+        task_data = redis_client.hgetall(task_key)
         if task_data:
+            # Convert completed back to boolean
+            task_data['completed'] = task_data['completed'] == 'true'
             tasks.append(Task(**task_data))
 
     return tasks
@@ -176,7 +182,7 @@ async def get_task(task_id: str, task: TaskCreate):
     return Task(**tasks_db[task_id])
 
 # Update Task using ID
-@app.put("/tasks/{tasks_id}", response_model=Task)
+@app.put("/tasks/{task_id}", response_model=Task)
 async def update_task(task_id: str, task: TaskCreate, redis_client: redis.Redis = Depends(get_redis)):
     task_key = f"{TASK_KEY_PREFIX}{task_id}"
 
@@ -187,15 +193,22 @@ async def update_task(task_id: str, task: TaskCreate, redis_client: redis.Redis 
     # Get existing task data
     existing_task = redis_client.hgetall(task_key)
     
+    # Convert task to dict and handle boolean
+    task_dict = task.dict()
+    task_dict['completed'] = str(task_dict['completed']).lower()
+    
     # Updates task data with passed in task, and updates the updated_at
     updated_task = {
         **existing_task, 
-        **task.dict(),
+        **task_dict,
         "updated_at": datetime.now().isoformat()
     }
 
     # Stores updated task
     redis_client.hset(task_key, mapping=updated_task)
+
+    # Convert completed back to boolean for response and websocket
+    updated_task['completed'] = updated_task['completed'] == 'true'
 
     # Publishes event for real-time updates
     redis_client.publish(
@@ -224,8 +237,5 @@ async def delete_task(task_id: str, redis_client: redis.Redis = Depends(get_redi
         TASK_CHANNEL,
         json.dumps({ "action": "delete", "task": task_data})
     )
-    
-    # Delete Task by ID
-    del tasks_db[task_id]
 
     return {"message": "Task deleted successfully"}

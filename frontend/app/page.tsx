@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { fetchTasks, createTask, updateTask, deleteTask } from "@/services/api";
+import useWebSocket from '@/hooks/useWebSocket'
 
 export default function Home() {
   const [tasks, setTasks] = useState([]);
@@ -38,8 +39,9 @@ export default function Home() {
 
     try {
       setLoading(true);
+      // changed how sending WebSocket will handle the state update
       const createdTask = await createTask(newTask);
-      setTasks([...tasks, createdTask]);
+      await createTask(newTask)
       setNewTask({ taskTitle: "", completed: false });
       setError(null);
     } catch (err) {
