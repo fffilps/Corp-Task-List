@@ -4,12 +4,64 @@ import { useState, useEffect } from "react";
 import { fetchTasks, createTask, updateTask, deleteTask } from "@/services/api";
 import useWebSocket from '@/hooks/useWebSocket'
 
+interface Task {
+  id: string;
+  taskTitle: string;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+interface WebSocketMessage {
+  action: 'create' | 'update' | 'delete';
+  task: Task;
+}
+
 export default function Home() {
-  const [tasks, setTasks] = useState([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
   const [newTask, setNewTask] = useState({ taskTitle: "", completed: false });
-  const [editedTask, setEditedTask] = useState(null);
+  const [editedTask, setEditedTask] = useState<Task | null>(null);
+
+  // Add WebSocket connection
+  useWebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8000/ws', {
+    onMessage: (data: string) => {
+      try {
+        const message = JSON.parse(data);
+        // Ignore ping messages
+        if (message.type === 'ping') {
+          return;
+        }
+        
+        // Handle task updates
+        const taskMessage = message as WebSocketMessage;
+        if (taskMessage.action === 'create') {
+          setTasks(prevTasks => [...prevTasks, taskMessage.task]);
+        } else if (taskMessage.action === 'update') {
+          setTasks(prevTasks => prevTasks.map(task => 
+            task.id === taskMessage.task.id ? taskMessage.task : task
+          ));
+        } else if (taskMessage.action === 'delete') {
+          setTasks(prevTasks => prevTasks.filter(task => task.id !== taskMessage.task.id));
+        }
+      } catch (err) {
+        console.error('Error processing WebSocket message:', err);
+      }
+    },
+    onError: (error: Error) => {
+      console.error('WebSocket error:', error);
+      setError('WebSocket connection error. Real-time updates may not work.');
+    },
+    onOpen: () => {
+      console.log('WebSocket connected successfully');
+      setError(null);
+    },
+    onClose: () => {
+      console.log('WebSocket connection closed');
+      setError('WebSocket connection closed. Real-time updates may not work.');
+    }
+  });
 
   useEffect(() => {
     const loadTasks = async () => {
@@ -30,7 +82,7 @@ export default function Home() {
   }, []);
 
   // Operations
-  const handleCreateTask = async (e) => {
+  const handleCreateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!newTask.taskTitle.trim()) {
@@ -51,7 +103,7 @@ export default function Home() {
     }
   };
 
-  const handleUpdateTask = async (e) => {
+  const handleUpdateTask = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (!editedTask || !editedTask.taskTitle.trim()) {
@@ -79,7 +131,7 @@ export default function Home() {
     }
   };
 
-  const handleDeleteTask = async (id) => {
+  const handleDeleteTask = async (id: string) => {
     try {
       setLoading(true);
       await deleteTask(id);
@@ -93,7 +145,7 @@ export default function Home() {
     }
   };
 
-  const handleToggleComplete = async (task) => {
+  const handleToggleComplete = async (task: Task) => {
     try {
       setLoading(true);
       const updatedTask = await updateTask(task.id, {
@@ -132,7 +184,7 @@ export default function Home() {
             onChange={(e) => setNewTask({ ...newTask, taskTitle: e.target.value })}
             placeholder="Enter task title"
             required
-            className="w-full p-3 border-4 border-cyan-900 focus:outline-none focus:ring-4 focus:ring-pink-400 transition-all bg-white"
+            className="w-full p-3 border-4 border-cyan-900 focus:outline-none focus:ring-4 focus:ring-pink-400 transition-all bg-white text-cyan-900"
           />
         </div>
         <div className="mb-6">
@@ -166,7 +218,7 @@ export default function Home() {
               onChange={(e) => setEditedTask({...editedTask, taskTitle: e.target.value})}
               placeholder="Enter task title"
               required
-              className="w-full p-3 border-4 border-orange-900 focus:outline-none focus:ring-4 focus:ring-pink-400 transition-all bg-white"
+              className="w-full p-3 border-4 border-orange-900 focus:outline-none focus:ring-4 focus:ring-pink-400 transition-all bg-white text-cyan-900"
             />
           </div>
 

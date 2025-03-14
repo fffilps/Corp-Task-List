@@ -72,11 +72,16 @@ class ConnectionManager:
 
     async def listen_for_messages(self):
         print("Started listening for Redis messages")
-        for message in self.pubsub.listen():
-            if message["type"] == "message":
-                data = message["data"]
-                print(f"Received Redis message: {data}")
-                await self.broadcast(data)
+        try:
+            while True:
+                message = await asyncio.to_thread(self.pubsub.get_message)
+                if message and message["type"] == "message":
+                    data = message["data"]
+                    print(f"Received Redis message: {data}")
+                    await self.broadcast(data)
+                await asyncio.sleep(0.1)  # Prevent CPU hogging
+        except Exception as e:
+            print(f"Error in Redis listener: {str(e)}")
 
 # Create an instance
 manager = ConnectionManager()
@@ -105,18 +110,27 @@ async def websocket_endpoint(websocket: WebSocket):
         # Start Redis listener if not already started
         if manager.pubsub is None:
             await manager.start_redis_listener()
+        
+        # Keep the connection alive with periodic pings
         while True:
-            # Keep the connection alive
-            data = await websocket.receive_text()
-            print(f"Received WebSocket message: {data}")
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                print(f"Received WebSocket message: {data}")
+            except asyncio.TimeoutError:
+                try:
+                    # Send a ping to keep the connection alive
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    break
+            except Exception:
+                break
     except Exception as e:
         print(f"WebSocket error: {str(e)}")
-        manager.disconnect(websocket)
     finally:
         manager.disconnect(websocket)
 
 # Redis Configuration
-REDIS_HOST = "localhost"  # Use localhost for local development
+REDIS_HOST = "redis"  # Use service name from docker-compose
 REDIS_PORT = 6379
 REDIS_DB = 0
 TASK_KEY_PREFIX = "task:"
