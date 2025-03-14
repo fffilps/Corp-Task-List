@@ -31,20 +31,29 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        print(f"New WebSocket connection. Total connections: {len(self.active_connections)}")
 
-    def disconnet(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            print(f"WebSocket disconnected. Remaining connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: str):
+        if not self.active_connections:
+            print("No active connections to broadcast to")
+            return
+            
+        print(f"Broadcasting message to {len(self.active_connections)} connections: {message}")
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except Exception:
+            except Exception as e:
+                print(f"Error broadcasting message: {str(e)}")
                 # Connection might be closed or in error state
                 pass
     
     async def start_redis_listener(self):
+        print("Starting Redis listener")
         # Connect to Redis
         self.redis_client = redis.Redis(
             host=REDIS_HOST,
@@ -56,16 +65,18 @@ class ConnectionManager:
         # Initialize PubSub
         self.pubsub = self.redis_client.pubsub()
         self.pubsub.subscribe(TASK_CHANNEL)
+        print(f"Subscribed to Redis channel: {TASK_CHANNEL}")
 
         # Start listening for messages in a background task
         asyncio.create_task(self.listen_for_messages())
 
     async def listen_for_messages(self):
-        # This needs to run in a seperate thread because Redis PubSub is blocking
+        print("Started listening for Redis messages")
         for message in self.pubsub.listen():
             if message["type"] == "message":
                 data = message["data"]
-                await self.braodcast(data)
+                print(f"Received Redis message: {data}")
+                await self.broadcast(data)
 
 # Create an instance
 manager = ConnectionManager()
@@ -82,8 +93,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory until Redis
-tasks_db = {}
+# # In-memory until Redis
+# tasks_db = {}
+
+# WebSocket endpoint
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    print("New WebSocket connection request")
+    await manager.connect(websocket)
+    try:
+        # Start Redis listener if not already started
+        if manager.pubsub is None:
+            await manager.start_redis_listener()
+        while True:
+            # Keep the connection alive
+            data = await websocket.receive_text()
+            print(f"Received WebSocket message: {data}")
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+        manager.disconnect(websocket)
+    finally:
+        manager.disconnect(websocket)
 
 # Redis Configuration
 REDIS_HOST = "localhost"  # Use localhost for local development
@@ -239,3 +269,4 @@ async def delete_task(task_id: str, redis_client: redis.Redis = Depends(get_redi
     )
 
     return {"message": "Task deleted successfully"}
+

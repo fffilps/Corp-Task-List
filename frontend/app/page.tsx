@@ -40,7 +40,6 @@ export default function Home() {
     try {
       setLoading(true);
       // changed how sending WebSocket will handle the state update
-      const createdTask = await createTask(newTask);
       await createTask(newTask)
       setNewTask({ taskTitle: "", completed: false });
       setError(null);
