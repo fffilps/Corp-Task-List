@@ -31,20 +31,29 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        print(f"New WebSocket connection. Total connections: {len(self.active_connections)}")
 
-    def disconnet(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+            print(f"WebSocket disconnected. Remaining connections: {len(self.active_connections)}")
 
     async def broadcast(self, message: str):
+        if not self.active_connections:
+            print("No active connections to broadcast to")
+            return
+            
+        print(f"Broadcasting message to {len(self.active_connections)} connections: {message}")
         for connection in self.active_connections:
             try:
                 await connection.send_text(message)
-            except Exception:
+            except Exception as e:
+                print(f"Error broadcasting message: {str(e)}")
                 # Connection might be closed or in error state
                 pass
     
     async def start_redis_listener(self):
+        print("Starting Redis listener")
         # Connect to Redis
         self.redis_client = redis.Redis(
             host=REDIS_HOST,
@@ -56,16 +65,23 @@ class ConnectionManager:
         # Initialize PubSub
         self.pubsub = self.redis_client.pubsub()
         self.pubsub.subscribe(TASK_CHANNEL)
+        print(f"Subscribed to Redis channel: {TASK_CHANNEL}")
 
         # Start listening for messages in a background task
         asyncio.create_task(self.listen_for_messages())
 
     async def listen_for_messages(self):
-        # This needs to run in a seperate thread because Redis PubSub is blocking
-        for message in self.pubsub.listen():
-            if message["type"] == "message":
-                data = message["data"]
-                await self.braodcast(data)
+        print("Started listening for Redis messages")
+        try:
+            while True:
+                message = await asyncio.to_thread(self.pubsub.get_message)
+                if message and message["type"] == "message":
+                    data = message["data"]
+                    print(f"Received Redis message: {data}")
+                    await self.broadcast(data)
+                await asyncio.sleep(0.1)  # Prevent CPU hogging
+        except Exception as e:
+            print(f"Error in Redis listener: {str(e)}")
 
 # Create an instance
 manager = ConnectionManager()
@@ -82,11 +98,39 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory until Redis
-tasks_db = {}
+# # In-memory until Redis
+# tasks_db = {}
+
+# WebSocket endpoint
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    print("New WebSocket connection request")
+    await manager.connect(websocket)
+    try:
+        # Start Redis listener if not already started
+        if manager.pubsub is None:
+            await manager.start_redis_listener()
+        
+        # Keep the connection alive with periodic pings
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                print(f"Received WebSocket message: {data}")
+            except asyncio.TimeoutError:
+                try:
+                    # Send a ping to keep the connection alive
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    break
+            except Exception:
+                break
+    except Exception as e:
+        print(f"WebSocket error: {str(e)}")
+    finally:
+        manager.disconnect(websocket)
 
 # Redis Configuration
-REDIS_HOST = "localhost"  # Use localhost for local development
+REDIS_HOST = "redis"  # Use service name from docker-compose
 REDIS_PORT = 6379
 REDIS_DB = 0
 TASK_KEY_PREFIX = "task:"
@@ -134,23 +178,31 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
         "updated_at": timestamp
     }
     
-    # Store in Redis
-    task_key = f"{TASK_KEY_PREFIX}{task_id}"
-    redis_client.hset(task_key, mapping=task_data)
+    try:
+        # Store in Redis
+        task_key = f"{TASK_KEY_PREFIX}{task_id}"
+        redis_client.hset(task_key, mapping=task_data)
 
-    # Adding to library set of tasks
-    redis_client.sadd(TASK_LIST_KEY, task_id)
+        # Adding to library set of tasks
+        redis_client.sadd(TASK_LIST_KEY, task_id)
 
-    # Convert back to boolean for the response
-    task_data['completed'] = task_data['completed'] == 'true'
+        # Convert back to boolean for the response and WebSocket
+        task_data['completed'] = task_data['completed'] == 'true'
 
-    # Publish event for real-time updates
-    redis_client.publish(
-        TASK_CHANNEL,
-        json.dumps({"action": "create", "task": task_data})
-    )
+        # Create the message once
+        message = json.dumps({"action": "create", "task": task_data})
 
-    return Task(**task_data)
+        # Publish to Redis for other server instances
+        redis_client.publish(TASK_CHANNEL, message)
+
+        # Directly broadcast to WebSocket connections
+        print("Broadcasting new task to all connections")
+        await manager.broadcast(message)
+
+        return Task(**task_data)
+    except Exception as e:
+        print(f"Error creating task: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create task")
 
 # Get all Task as a List
 @app.get("/tasks", response_model=List[Task])
@@ -239,3 +291,4 @@ async def delete_task(task_id: str, redis_client: redis.Redis = Depends(get_redi
     )
 
     return {"message": "Task deleted successfully"}
+

@@ -16,7 +16,7 @@ const useWebSocket = ( url, options = {}) => {
         }
 
         socket.current.onmessage = (event) => {
-            if (onmessage) onmessage(event.data)
+            if (onmessage) onMessage(event.data)
         }
 
         socket.current.onclose = (event) => {
