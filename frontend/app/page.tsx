@@ -28,6 +28,7 @@ export default function Home() {
   useWebSocket(process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8000/ws', {
     onMessage: (data: string) => {
       try {
+        console.log('Received WebSocket message:', data);
         const message = JSON.parse(data);
         // Ignore ping messages
         if (message.type === 'ping') {
@@ -36,8 +37,15 @@ export default function Home() {
         
         // Handle task updates
         const taskMessage = message as WebSocketMessage;
+        console.log('Processing task message:', taskMessage);
         if (taskMessage.action === 'create') {
-          setTasks(prevTasks => [...prevTasks, taskMessage.task]);
+          console.log('Adding new task:', taskMessage.task);
+          setTasks(prevTasks => {
+            // Check if task already exists to prevent duplicates
+            const taskExists = prevTasks.some(task => task.id === taskMessage.task.id);
+            console.log('Task exists?', taskExists);
+            return taskExists ? prevTasks : [...prevTasks, taskMessage.task];
+          });
         } else if (taskMessage.action === 'update') {
           setTasks(prevTasks => prevTasks.map(task => 
             task.id === taskMessage.task.id ? taskMessage.task : task
@@ -92,7 +100,10 @@ export default function Home() {
     try {
       setLoading(true);
       // changed how sending WebSocket will handle the state update
-      await createTask(newTask)
+      const createdTask = await createTask(newTask);
+      console.log('Task created successfully:', createdTask);
+      // Immediately update the tasks list with the new task
+      setTasks(prevTasks => [...prevTasks, createdTask]);
       setNewTask({ taskTitle: "", completed: false });
       setError(null);
     } catch (err) {

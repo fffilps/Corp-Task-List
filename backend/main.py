@@ -178,23 +178,31 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
         "updated_at": timestamp
     }
     
-    # Store in Redis
-    task_key = f"{TASK_KEY_PREFIX}{task_id}"
-    redis_client.hset(task_key, mapping=task_data)
+    try:
+        # Store in Redis
+        task_key = f"{TASK_KEY_PREFIX}{task_id}"
+        redis_client.hset(task_key, mapping=task_data)
 
-    # Adding to library set of tasks
-    redis_client.sadd(TASK_LIST_KEY, task_id)
+        # Adding to library set of tasks
+        redis_client.sadd(TASK_LIST_KEY, task_id)
 
-    # Convert back to boolean for the response
-    task_data['completed'] = task_data['completed'] == 'true'
+        # Convert back to boolean for the response and WebSocket
+        task_data['completed'] = task_data['completed'] == 'true'
 
-    # Publish event for real-time updates
-    redis_client.publish(
-        TASK_CHANNEL,
-        json.dumps({"action": "create", "task": task_data})
-    )
+        # Create the message once
+        message = json.dumps({"action": "create", "task": task_data})
 
-    return Task(**task_data)
+        # Publish to Redis for other server instances
+        redis_client.publish(TASK_CHANNEL, message)
+
+        # Directly broadcast to WebSocket connections
+        print("Broadcasting new task to all connections")
+        await manager.broadcast(message)
+
+        return Task(**task_data)
+    except Exception as e:
+        print(f"Error creating task: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to create task")
 
 # Get all Task as a List
 @app.get("/tasks", response_model=List[Task])

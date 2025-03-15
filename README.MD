@@ -15,3 +15,5 @@
 
 ## Backend Development
 ### Setting up Redi and FastAPI
+
+run ```docker compose up --bulid``` 
