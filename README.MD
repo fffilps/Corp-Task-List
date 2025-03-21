@@ -2,7 +2,7 @@
 
 A real-time task management application built with Next.js, FastAPI, Redis, and WebSocket for live updates. This application allows users to manage tasks with real-time synchronization across multiple clients.
 
-[![Watch the video]](https://raw.githubusercontent.com/fffilps/Corp-Task-List/main/TaskToDoDemo.mp4)
+[![Watch the video](https://raw.githubusercontent.com/fffilps/Corp-Task-List/main/TaskToDoDemo.mp4)](https://raw.githubusercontent.com/fffilps/Corp-Task-List/main/TaskToDoDemo.mp4)
 
 ## 🚀 Tech Stack
 
