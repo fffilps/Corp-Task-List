@@ -143,7 +143,7 @@ NEXT_PUBLIC_WS_URL=your_websocket_url
 
 ## Future Enhancements
 
-- Task Expiry
+- Task Expiry - upon documentation - requires expire(key, seconds) - https://redis.io/docs/latest/commands/expire/
 - Rate Limiting
 - Real-Time Analytics
 - User Authentication
