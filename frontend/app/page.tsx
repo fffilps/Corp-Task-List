@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { fetchTasks, createTask, updateTask, deleteTask } from "@/services/api";
 import useWebSocket from '@/hooks/useWebSocket'
+import TaskExpiry from '@/components/TaskExpiry';
 
 interface Task {
   id: string;
@@ -10,6 +11,7 @@ interface Task {
   completed: boolean;
   created_at: string;
   updated_at: string;
+  expires_at?: string;
 }
 
 interface WebSocketMessage {
@@ -175,6 +177,26 @@ export default function Home() {
     }
   };
 
+  const handleSetExpiry = async (taskId: string, hours: number) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/tasks/${taskId}/expiry?expiry_hours=${hours}`, {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to set task expiry');
+      }
+      
+      setError(null);
+    } catch (err) {
+      setError("Failed to set task expiry. Please try again.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-purple-200 p-8 font-mono">
       {error && (
@@ -286,7 +308,12 @@ export default function Home() {
                         {task.taskTitle}
                       </h3>
                     </div>
-                    <div className="flex space-x-3">
+                    <div className="flex items-center space-x-4">
+                      <TaskExpiry
+                        taskId={task.id}
+                        currentExpiry={task.expires_at}
+                        onSetExpiry={handleSetExpiry}
+                      />
                       <button
                         onClick={() => setEditedTask(task)}
                         className="px-4 py-2 bg-pink-500 border-2 border-teal-900 font-bold hover:bg-pink-600 transition-all text-white"

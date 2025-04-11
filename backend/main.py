@@ -7,11 +7,14 @@ from typing import List, Optional, Dict
 import redis
 import json
 import asyncio
+from task_expiry import router as expiry_router
+from redis_config import get_redis, TASK_KEY_PREFIX, TASK_LIST_KEY, TASK_CHANNEL
 
 # Declaring Data Models
 class TaskBase(BaseModel):
     taskTitle: str
     completed: bool = False
+    expires_at: Optional[str] = None
 
 class TaskCreate(TaskBase):
     pass
@@ -56,9 +59,9 @@ class ConnectionManager:
         print("Starting Redis listener")
         # Connect to Redis
         self.redis_client = redis.Redis(
-            host=REDIS_HOST,
-            port=REDIS_PORT,
-            db=REDIS_DB,
+            host="redis",
+            port=6379,
+            db=0,
             decode_responses=True
         )
 
@@ -89,6 +92,8 @@ manager = ConnectionManager()
 # Init App
 app = FastAPI(title="Real-Time Task List API")
 
+# Include the expiry router
+app.include_router(expiry_router)
 
 # CORS middleware to control access
 app.add_middleware(
@@ -129,27 +134,6 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         manager.disconnect(websocket)
 
-# Redis Configuration
-REDIS_HOST = "redis"  # Use service name from docker-compose
-REDIS_PORT = 6379
-REDIS_DB = 0
-TASK_KEY_PREFIX = "task:"
-TASK_LIST_KEY = "task"
-TASK_CHANNEL = "task_updates" # Channel for Pub/Sub
-
-# Redis Dependecy init
-def get_redis(): 
-    redis_client = redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        db=REDIS_DB,
-        decode_responses=True # Need in order to work with strings and not bytes
-    )
-    try:
-        yield redis_client
-    finally:
-        redis_client.close()
-
 # Helper Functions
 def generate_task_id():
     return str(uuid.uuid4())
@@ -171,6 +155,10 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
     task_dict = task.dict()
     task_dict['completed'] = str(task_dict['completed']).lower()
     
+    # Handle expires_at field - convert None to empty string for Redis
+    if task_dict.get('expires_at') is None:
+        task_dict['expires_at'] = ''
+    
     task_data = {
         **task_dict,
         "id": task_id,
@@ -188,6 +176,9 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
 
         # Convert back to boolean for the response and WebSocket
         task_data['completed'] = task_data['completed'] == 'true'
+        # Convert empty string back to None for the response
+        if task_data['expires_at'] == '':
+            task_data['expires_at'] = None
 
         # Create the message once
         message = json.dumps({"action": "create", "task": task_data})
@@ -207,7 +198,6 @@ async def create_task(task: TaskCreate, redis_client: redis.Redis = Depends(get_
 # Get all Task as a List
 @app.get("/tasks", response_model=List[Task])
 async def get_tasks(redis_client: redis.Redis = Depends(get_redis)):
-
     # get all task IDs
     task_ids = redis_client.smembers(TASK_LIST_KEY)
     tasks = []
@@ -218,6 +208,9 @@ async def get_tasks(redis_client: redis.Redis = Depends(get_redis)):
         if task_data:
             # Convert completed back to boolean
             task_data['completed'] = task_data['completed'] == 'true'
+            # Convert empty string to None for expires_at
+            if task_data.get('expires_at') == '':
+                task_data['expires_at'] = None
             tasks.append(Task(**task_data))
 
     return tasks
@@ -249,26 +242,42 @@ async def update_task(task_id: str, task: TaskCreate, redis_client: redis.Redis 
     task_dict = task.dict()
     task_dict['completed'] = str(task_dict['completed']).lower()
     
+    # Handle expires_at field - convert None to empty string for Redis
+    if task_dict.get('expires_at') is None:
+        task_dict['expires_at'] = ''
+    
     # Updates task data with passed in task, and updates the updated_at
     updated_task = {
         **existing_task, 
         **task_dict,
+        "id": task_id,
+        "created_at": existing_task.get("created_at", datetime.now().isoformat()),
         "updated_at": datetime.now().isoformat()
     }
 
-    # Stores updated task
-    redis_client.hset(task_key, mapping=updated_task)
+    try:
+        # Stores updated task
+        redis_client.hset(task_key, mapping=updated_task)
 
-    # Convert completed back to boolean for response and websocket
-    updated_task['completed'] = updated_task['completed'] == 'true'
+        # Convert completed back to boolean for response and websocket
+        updated_task['completed'] = updated_task['completed'] == 'true'
+        # Convert empty string back to None for the response
+        if updated_task['expires_at'] == '':
+            updated_task['expires_at'] = None
 
-    # Publishes event for real-time updates
-    redis_client.publish(
-        TASK_CHANNEL,
-        json.dumps({"action": "update", "task": updated_task})
-    )
+        # Create the message once
+        message = json.dumps({"action": "update", "task": updated_task})
 
-    return Task(**updated_task)
+        # Publish to Redis for other server instances
+        redis_client.publish(TASK_CHANNEL, message)
+
+        # Directly broadcast to WebSocket connections
+        await manager.broadcast(message)
+
+        return Task(**updated_task)
+    except Exception as e:
+        print(f"Error updating task: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update task")
 
 @app.delete("/tasks/{task_id}")
 async def delete_task(task_id: str, redis_client: redis.Redis = Depends(get_redis)):
@@ -284,11 +293,17 @@ async def delete_task(task_id: str, redis_client: redis.Redis = Depends(get_redi
     redis_client.delete(task_key)
     redis_client.srem(TASK_LIST_KEY, task_id)
 
-    # Publish event for real-time updates
-    redis_client.publish(
-        TASK_CHANNEL,
-        json.dumps({ "action": "delete", "task": task_data})
-    )
+    # Create the message once
+    message = json.dumps({"action": "delete", "task": {"id": task_id}})
+
+    # Publish to Redis for other server instances
+    redis_client.publish(TASK_CHANNEL, message)
+
+    # Directly broadcast to WebSocket connections
+    await manager.broadcast(message)
 
     return {"message": "Task deleted successfully"}
+# except Exception as e:
+#     print(f"Error deleting task: {str(e)}")
+#     raise HTTPException(status_code=500, detail="Failed to delete task")
 

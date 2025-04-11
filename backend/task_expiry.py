@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from datetime import datetime, timedelta
 import redis
-from main import get_redis
+import json
+from redis_config import get_redis, TASK_KEY_PREFIX, TASK_CHANNEL
 
 router = APIRouter()
 
@@ -9,9 +10,7 @@ router = APIRouter()
 REDIS_HOST = "redis"
 REDIS_PORT = 6379
 REDIS_DB = 0
-TASK_KEY_PREFIX = "task:"
 TASK_LIST_KEY = "tasks"
-TASK_CHANNEL = "task_updates"
 
 # Set task expiry
 @router.post("/tasks/{task_id}/expiry")

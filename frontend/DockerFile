@@ -4,9 +4,24 @@ WORKDIR /app
 
 COPY package.json ./
 
+# Install dependencies
 RUN npm install
 
 COPY . .
+
+# Downgrade Tailwind CSS to a stable version compatible with Next.js
+RUN npm uninstall tailwindcss @tailwindcss/postcss && \
+    npm install tailwindcss@3.3.3 postcss@8.4.31 autoprefixer@10.4.16 --save-dev
+
+# Create a tailwind.config.js file for Tailwind CSS v3
+RUN echo 'module.exports = { content: ["./app/**/*.{js,ts,jsx,tsx}"], theme: { extend: {} }, plugins: [] }' > tailwind.config.js
+
+# Create a postcss.config.js file for Tailwind CSS v3
+RUN echo 'module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } }' > postcss.config.js
+
+# Update globals.css to use Tailwind CSS v3 directives
+RUN sed -i 's/@import "tailwindcss\/preflight";/@tailwind base;/g' app/globals.css && \
+    sed -i 's/@import "tailwindcss";/@tailwind components;\n@tailwind utilities;/g' app/globals.css
 
 RUN npm run build
 
